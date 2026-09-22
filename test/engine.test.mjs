@@ -185,3 +185,44 @@ test('cancelOptimize aborts in-flight run', async () => {
   assert.equal(r.cancelled, true)
   assert.equal(aborted, true)
 })
+
+test('api without config degrades to local', async () => {
+  const ctx = makeCtx()
+  apply(ctx)
+  const r = await ctx.provided.promptLab.optimizePrompt({
+    draft: DRAFT,
+    mode: 'normal',
+    engine: 'api',
+  })
+  assert.equal(r.ok, true)
+  assert.equal(r.source, 'local')
+  assert.equal(r.degraded, true)
+  assert.ok(r.llmError)
+})
+
+test('api success returns polished pure body', async () => {
+  const ctx = makeCtx()
+  apply(ctx)
+  const origFetch = globalThis.fetch
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [{ message: { content: '**角色**：文案。\n**任务**：写笔记。' } }],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )
+  try {
+    const r = await ctx.provided.promptLab.optimizePrompt({
+      draft: DRAFT,
+      mode: 'normal',
+      engine: 'api',
+      api: { baseUrl: 'https://api.example.com', apiKey: 'sk-test', model: 'm1' },
+    })
+    assert.equal(r.ok, true)
+    assert.equal(r.source, 'api')
+    assert.equal(r.degraded, false)
+    assert.match(r.text, /\*\*角色\*\*/)
+  } finally {
+    globalThis.fetch = origFetch
+  }
+})

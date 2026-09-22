@@ -1,9 +1,10 @@
 /**
  * dsh-prompt-lab client
- * Input area: optimize → modal confirm (原稿|结果|五层+分) → 采用写回
- * Settings.section: engine / mode / 推理行为 / about
+ * Input area: optimize → modal (可编辑原稿|结果|五层+分) → 继续优化 / 回填输入 / 采用
+ * Settings.section: engine / mode / 云端 API / 推理行为 / about
  */
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { LAYER_NAMES, canAdoptResult } from '../shared.js'
 
 const MODE_OPTIONS = [
@@ -15,6 +16,7 @@ const ENGINE_OPTIONS = [
   { value: 'local', label: '仅本地', desc: '离线规则，结构化骨架，不出机' },
   { value: 'hybrid', label: 'hybrid', desc: '本地骨架 → 能解析 provider+model 才精修（默认）' },
   { value: 'dsh', label: '仅DSH', desc: '用已配置模型精修，失败仍降级本地' },
+  { value: 'api', label: '云端 API', desc: 'DeepSeek / OpenAI 兼容接口，失败仍降级本地' },
 ]
 const FIVE_LAYERS = ['role', 'task', 'context', 'constraint', 'format']
 const SETTINGS_KEY = 'plab.settings.v2'
@@ -45,6 +47,12 @@ function defaultSettings() {
     engine: 'hybrid',
     useLoop: false,
     useHotkey: true,
+    api: {
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: '',
+      model: 'deepseek-chat',
+    },
   }
 }
 
@@ -56,9 +64,14 @@ function loadSettings() {
     const d = defaultSettings()
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return d
     let engine = d.engine
-    if (parsed.engine === 'local' || parsed.engine === 'hybrid' || parsed.engine === 'dsh') {
+    if (
+      parsed.engine === 'local' ||
+      parsed.engine === 'hybrid' ||
+      parsed.engine === 'dsh' ||
+      parsed.engine === 'api'
+    ) {
       engine = parsed.engine
-    } else if (parsed.engine === 'api' || parsed.engine === 'small') {
+    } else if (parsed.engine === 'small') {
       engine = 'hybrid'
     } else if (parsed.useLlm === true) {
       engine = 'hybrid'
@@ -70,6 +83,7 @@ function loadSettings() {
       engine,
       useLoop: !!parsed.useLoop,
       useHotkey: parsed.useHotkey !== false,
+      api: { ...d.api, ...(parsed.api && typeof parsed.api === 'object' ? parsed.api : {}) },
     }
   } catch (e) {
     return defaultSettings()
@@ -84,7 +98,11 @@ function subscribeSettings(fn) {
 
 function saveSettings(patch) {
   const base = loadSettings()
-  const next = { ...base, ...patch }
+  const next = {
+    ...base,
+    ...patch,
+    api: { ...base.api, ...(patch && patch.api ? patch.api : {}) },
+  }
   try {
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next))
   } catch (e) {}
@@ -100,8 +118,7 @@ function saveSettings(patch) {
 }
 
 const css = `
-.plab-root{display:inline-flex;align-items:center;gap:6px;position:relative;
-  --pl-surface:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#fff));
+.plab-root,.plab-overlay,.plab-sec{--pl-surface:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#fff));
   --pl-raised:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-1,#fff));
   --pl-border:var(--dsw-alias-border-l1,#0000000a);
   --pl-border-strong:var(--dsw-alias-border-l2,#0000001a);
@@ -115,7 +132,8 @@ const css = `
   --pl-ok:var(--dsw-alias-state-success-primary,#15803d);
   --pl-menu:var(--dsw-specific-menu,var(--pl-raised));
   --pl-input:var(--dsw-alias-bg-input,transparent);
-  color:var(--pl-text);min-width:0}
+  color:var(--pl-text)}
+.plab-root{display:inline-flex;align-items:center;gap:6px;position:relative;min-width:0}
 .plab-btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;
   height:28px;padding:0 12px;font-size:12px;font-weight:500;line-height:1;color:var(--pl-text-2);
   border:none;border-radius:999px;cursor:pointer;background:transparent}
@@ -137,15 +155,18 @@ const css = `
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .plab-toast.is-err{color:var(--pl-warn)}
 .plab-toast.is-ok{color:var(--pl-accent)}
-/* Modal */
-.plab-overlay{position:fixed;inset:0;z-index:200;background:rgba(15,17,21,.36);
-  display:flex;align-items:center;justify-content:center;padding:24px 16px;
-  animation:plab-fade .12s ease-out}
-.plab-modal{width:min(880px,100%);max-height:min(78vh,720px);display:flex;flex-direction:column;
+/* Modal — portal to document.body, true viewport overlay */
+.plab-overlay{position:fixed;inset:0;z-index:2147483000;background:rgba(15,17,21,.42);
+  display:flex;align-items:center;justify-content:center;padding:32px 20px;
+  animation:plab-fade .12s ease-out;box-sizing:border-box;
+  transform:none!important;filter:none!important;contain:none!important}
+.plab-modal{width:min(880px,calc(100vw - 40px));max-height:min(78vh,720px);
+  display:flex;flex-direction:column;box-sizing:border-box;
   background:var(--pl-raised);color:var(--pl-text);border:1px solid var(--pl-border-strong);
-  border-radius:14px;box-shadow:0 18px 48px rgba(0,0,0,.22);overflow:hidden}
+  border-radius:14px;box-shadow:0 18px 48px rgba(0,0,0,.28);overflow:hidden}
 .plab-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:12px 14px;border-bottom:1px solid var(--pl-border)}
+.plab-head-actions{display:flex;align-items:center;gap:6px;flex:none}
 .plab-modal-title{margin:0;font-size:14px;font-weight:600;line-height:20px}
 .plab-modal-meta{font-size:11px;color:var(--pl-text-3);font-weight:400;margin-left:8px}
 .plab-x{appearance:none;width:28px;height:28px;border:none;border-radius:8px;background:transparent;
@@ -167,14 +188,19 @@ const css = `
 .plab-chip.is-off{border-color:color-mix(in srgb,var(--pl-warn) 35%,transparent);
   color:var(--pl-warn);background:color-mix(in srgb,var(--pl-warn) 8%,transparent)}
 .plab-panes{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px 14px;
-  min-height:0;flex:1;overflow:hidden}
-.plab-pane{display:flex;flex-direction:column;min-height:0;min-width:0;
+  min-height:0;flex:1 1 auto;overflow:hidden}
+.plab-pane{display:flex;flex-direction:column;min-height:0;min-width:0;height:100%;
   border:1px solid var(--pl-border);border-radius:10px;overflow:hidden;background:var(--pl-surface)}
 .plab-pane-h{padding:6px 10px;font-size:11px;font-weight:600;color:var(--pl-text-3);
   border-bottom:1px solid var(--pl-border);background:color-mix(in srgb,var(--pl-raised) 70%,transparent)}
-.plab-pane-b{margin:0;padding:10px;overflow:auto;flex:1;min-height:120px;
+.plab-pane-b{margin:0;padding:10px;overflow:auto;flex:1 1 auto;min-height:0;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;color:var(--pl-text)}
+.plab-pane-edit{flex:1 1 auto;min-height:0;margin:0;padding:10px;resize:none;border:none;outline:none;
+  width:100%;box-sizing:border-box;background:transparent;color:var(--pl-text);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.plab-pane-edit:focus{background:color-mix(in srgb,var(--pl-accent) 4%,transparent)}
 .plab-modal-foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;
   padding:12px 14px;border-top:1px solid var(--pl-border)}
 .plab-hint{margin-right:auto;font-size:11px;color:var(--pl-text-3)}
@@ -204,6 +230,13 @@ const css = `
 .plab-mode{height:32px;padding:0 14px;font-size:12.5px;border-radius:8px;cursor:pointer;
   border:1px solid var(--pl-border-strong);background:transparent;color:var(--pl-text-2)}
 .plab-mode.is-on{border-color:var(--pl-accent);color:var(--pl-accent);background:var(--pl-accent-soft);font-weight:600}
+.plab-field{display:flex;flex-direction:column;gap:4px}
+.plab-field-label{font-size:12px;font-weight:600;color:var(--pl-text-2)}
+.plab-input{box-sizing:border-box;width:100%;height:36px;padding:0 10px;font-size:13px;font-family:inherit;
+  color:var(--pl-text);background:var(--pl-input);border:1px solid var(--pl-border-strong);
+  border-radius:8px;outline:none}
+.plab-input:focus{border-color:var(--pl-accent)}
+.plab-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:6px}
 .plab-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:6px 0}
 .plab-row-text{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
 .plab-switch{appearance:none;flex:0 0 auto;width:40px;height:22px;margin:0;
@@ -222,10 +255,10 @@ const css = `
 .plab-summary{margin:0;font-size:11.5px;line-height:16px;color:var(--pl-text-3);
   padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--pl-surface) 80%,transparent);
   border:1px dashed var(--pl-border)}
-.plab-btn:focus-visible,.plab-b:focus-visible,.plab-tab:focus-visible,
+.plab-btn:focus-visible,.plab-b:focus-visible,.plab-tab:focus-visible,.plab-input:focus-visible,
 .plab-mode:focus-visible,.plab-choice:focus-visible,.plab-switch:focus-visible,.plab-x:focus-visible{
   outline:2px solid var(--pl-accent);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){.plab-root *{transition:none!important;animation:none!important}}
+@media (prefers-reduced-motion:reduce){.plab-root *,.plab-overlay *{transition:none!important;animation:none!important}}
 `
 
 const cssTagId = 'dsh-prompt-lab/client.css'
@@ -271,6 +304,7 @@ const CONTRIBUTION = {
     descriptor('setSettings'),
     descriptor('optimizePrompt'),
     descriptor('cancelOptimize'),
+    descriptor('testConnection'),
   ],
 }
 
@@ -376,6 +410,11 @@ export async function apply(ctx) {
           engine: view.engine,
           useLoop: view.useLoop,
           useHotkey: view.useHotkey,
+          api: {
+            provider: view.api?.provider,
+            baseUrl: view.api?.baseUrl,
+            model: view.api?.model,
+          },
         },
       })
       .then(() => {})
@@ -385,16 +424,21 @@ export async function apply(ctx) {
   function engineLabel(s) {
     if (s.engine === 'local') return '仅本地'
     if (s.engine === 'dsh') return '仅DSH'
+    if (s.engine === 'api') return '云端 · ' + (s.api?.model || '')
     return 'hybrid'
   }
 
   function optimizePayload(s) {
-    const engine = s.engine === 'dsh' || s.engine === 'hybrid' || s.engine === 'local' ? s.engine : 'hybrid'
+    const engine =
+      s.engine === 'dsh' || s.engine === 'hybrid' || s.engine === 'local' || s.engine === 'api'
+        ? s.engine
+        : 'hybrid'
     return {
       mode: s.mode,
       engine,
       useLoop: s.useLoop,
       useLlm: engine !== 'local',
+      api: s.api,
     }
   }
 
@@ -429,45 +473,53 @@ export async function apply(ctx) {
   }
 
   function writeDraft(props, text) {
+    const value = String(text ?? '')
     const input = (props && props.input) || {}
     const inputActions = input.actions || (props && props.inputActions)
+    let ok = false
     if (inputActions && typeof inputActions.setDraft === 'function') {
-      inputActions.setDraft(text)
-      return true
+      inputActions.setDraft(value)
+      ok = true
+    } else if (input && typeof input.setDraft === 'function') {
+      input.setDraft(value)
+      ok = true
+    } else if (props && typeof props.onChangeDraft === 'function') {
+      props.onChangeDraft(value)
+      ok = true
     }
-    if (input && typeof input.setDraft === 'function') {
-      input.setDraft(text)
-      return true
-    }
-    if (props && typeof props.onChangeDraft === 'function') {
-      props.onChangeDraft(text)
-      return true
-    }
+    // 同步刷 DOM：宿主 setDraft 有时不同步到 textarea
     try {
       const ta = document.querySelector(
-        'textarea[data-phase], [data-composer-seat] textarea, [data-input-scroll] textarea, textarea',
+        '[data-composer-seat] textarea, [data-input-scroll] textarea, textarea[data-phase], textarea',
       )
       if (ta) {
         const proto = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')
-        if (proto && proto.set) proto.set.call(ta, text)
-        else ta.value = text
+        if (proto && proto.set) proto.set.call(ta, value)
+        else ta.value = value
         ta.dispatchEvent(new Event('input', { bubbles: true }))
         ta.dispatchEvent(new Event('change', { bubbles: true }))
-        return true
+        ok = true
       }
       const ed = document.querySelector('[data-composer-input], [contenteditable="true"]')
       if (ed && (ed.isContentEditable || ed.getAttribute('contenteditable') === 'true')) {
         ed.focus()
         document.execCommand('selectAll', false, null)
-        document.execCommand('insertText', false, text)
-        return true
+        document.execCommand('insertText', false, value)
+        ok = true
+      }
+      const mirror = document.querySelector('[data-input-mirror]')
+      if (mirror) {
+        mirror.textContent = value
+        ok = true
       }
     } catch (e) {}
-    return false
+    return ok
   }
 
   function PromptLabSettingsSection() {
     const [settings, setSettings] = React.useState(() => loadSettings())
+    const [testMsg, setTestMsg] = React.useState(null)
+    const [testing, setTesting] = React.useState(false)
 
     React.useEffect(() => {
       const unsub = subscribeSettings(setSettings)
@@ -485,6 +537,19 @@ export async function apply(ctx) {
       pushHostSettings(view)
     }
 
+    async function runApiTest() {
+      setTesting(true)
+      setTestMsg(null)
+      try {
+        const r = await host.call('testConnection', { api: settings.api })
+        setTestMsg({ ok: true, text: r.message || '连接成功' })
+      } catch (err) {
+        setTestMsg({ ok: false, text: String((err && err.message) || err) })
+      } finally {
+        setTesting(false)
+      }
+    }
+
     return React.createElement(
       'div',
       { className: 'plab-sec' },
@@ -492,7 +557,7 @@ export async function apply(ctx) {
       React.createElement(
         'p',
         { className: 'plab-sec-desc' },
-        '输入栏点「优化」→ 确认弹窗（原稿｜结果｜五层诊断+输出分）→ 采用写回。取消/Esc 不改草稿。',
+        '弹窗内可编辑原稿并「继续优化」（同优化逻辑）；「回填输入」把结果填入原稿；「采用」写回输入框。',
       ),
       React.createElement(
         'div',
@@ -501,7 +566,7 @@ export async function apply(ctx) {
         React.createElement(
           'p',
           { className: 'plab-n' },
-          '仅本地 | hybrid（默认）| 仅DSH。失败降级黄条，仍可采用。',
+          '仅本地 | hybrid（默认）| 仅DSH | 云端 API。失败降级黄条，仍可采用。',
         ),
         React.createElement(
           'div',
@@ -553,6 +618,114 @@ export async function apply(ctx) {
       React.createElement(
         'div',
         { className: 'plab-block' },
+        React.createElement('h3', { className: 'plab-h' }, '云端 API'),
+        React.createElement(
+          'p',
+          { className: 'plab-n' },
+          'OpenAI 兼容接口。Key 仅存本机 localStorage，不会写入工作区文件。',
+        ),
+        React.createElement(
+          'div',
+          { className: 'plab-modes' },
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'plab-mode' + (settings.api?.provider === 'deepseek' ? ' is-on' : ''),
+              onClick: () =>
+                set({
+                  engine: 'api',
+                  api: {
+                    provider: 'deepseek',
+                    baseUrl: 'https://api.deepseek.com',
+                    model: settings.api?.model || 'deepseek-chat',
+                  },
+                }),
+            },
+            'DeepSeek（推荐）',
+          ),
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'plab-mode' + (settings.api?.provider === 'custom' ? ' is-on' : ''),
+              onClick: () => set({ api: { provider: 'custom' } }),
+            },
+            '自定义 OpenAI 兼容',
+          ),
+        ),
+        React.createElement(
+          'div',
+          { className: 'plab-field' },
+          React.createElement('span', { className: 'plab-field-label' }, 'Base URL'),
+          React.createElement('input', {
+            className: 'plab-input',
+            value: settings.api?.baseUrl || '',
+            placeholder: 'https://api.deepseek.com',
+            onChange: (e) => set({ api: { baseUrl: e.target.value } }),
+          }),
+        ),
+        React.createElement(
+          'div',
+          { className: 'plab-field' },
+          React.createElement('span', { className: 'plab-field-label' }, 'API Key'),
+          React.createElement('input', {
+            className: 'plab-input',
+            type: 'password',
+            autoComplete: 'off',
+            value: settings.api?.apiKey || '',
+            placeholder: 'sk-...',
+            onChange: (e) => set({ api: { apiKey: e.target.value } }),
+          }),
+        ),
+        React.createElement(
+          'div',
+          { className: 'plab-field' },
+          React.createElement('span', { className: 'plab-field-label' }, '模型'),
+          React.createElement('input', {
+            className: 'plab-input',
+            value: settings.api?.model || '',
+            placeholder: 'deepseek-chat',
+            onChange: (e) => set({ api: { model: e.target.value } }),
+          }),
+        ),
+        React.createElement(
+          'div',
+          { className: 'plab-actions' },
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'plab-b',
+              disabled: testing,
+              onClick: runApiTest,
+            },
+            testing ? '测试中…' : '测试连接',
+          ),
+          React.createElement(
+            'button',
+            {
+              type: 'button',
+              className: 'plab-b plab-b-primary',
+              onClick: () => set({ engine: 'api' }),
+            },
+            '设为当前引擎',
+          ),
+        ),
+        testMsg
+          ? React.createElement(
+              'p',
+              {
+                className: 'plab-summary',
+                style: { color: testMsg.ok ? 'var(--pl-ok)' : 'var(--pl-warn)' },
+              },
+              testMsg.text,
+            )
+          : null,
+      ),
+      React.createElement(
+        'div',
+        { className: 'plab-block' },
         React.createElement('h3', { className: 'plab-h' }, '推理行为'),
         React.createElement(
           'div',
@@ -600,11 +773,12 @@ export async function apply(ctx) {
     )
   }
 
-  function ResultModal({ data, onAdopt, onCancel }) {
+  function ResultModal({ data, onAdopt, onFillInput, onCopy, onCancel, onDraftChange, onContinue, busy }) {
     const layers = (data && data.layers) || {}
     const score = data && typeof data.score === 'number' ? data.score : 0
     const degraded = !!(data && data.degraded)
     const reason = (data && (data.llmError || data.note)) || ''
+    const draftText = typeof data?.draft === 'string' ? data.draft : (data && data.snapshot) || ''
 
     React.useEffect(() => {
       function onKey(e) {
@@ -618,114 +792,152 @@ export async function apply(ctx) {
       return () => document.removeEventListener('keydown', onKey, true)
     }, [onCancel])
 
-    return React.createElement(
-      'div',
-      {
-        className: 'plab-overlay',
-        role: 'presentation',
-        onMouseDown: (e) => {
-          if (e.target === e.currentTarget) onCancel()
-        },
-      },
+    return createPortal(
       React.createElement(
         'div',
         {
-          className: 'plab-modal',
-          role: 'dialog',
-          'aria-modal': 'true',
-          'aria-label': '优化结果确认',
+          className: 'plab-overlay',
+          role: 'presentation',
+          onMouseDown: (e) => {
+            if (e.target === e.currentTarget) onCancel()
+          },
         },
         React.createElement(
           'div',
-          { className: 'plab-modal-head' },
+          {
+            className: 'plab-modal',
+            role: 'dialog',
+            'aria-modal': 'true',
+            'aria-label': '优化结果确认',
+          },
           React.createElement(
-            'h3',
-            { className: 'plab-modal-title' },
-            '优化结果',
+            'div',
+            { className: 'plab-modal-head' },
             React.createElement(
-              'span',
-              { className: 'plab-modal-meta' },
-              '引擎 ' + ((data && data.engineTried) || '-') +
-                ' · 来源 ' + ((data && data.source) || '-') +
-                (degraded ? ' · 已降级' : '') +
-                ((data && data.note) ? ' · ' + data.note : ''),
+              'h3',
+              { className: 'plab-modal-title' },
+              '优化结果',
+              React.createElement(
+                'span',
+                { className: 'plab-modal-meta' },
+                '引擎 ' + ((data && data.engineTried) || '-') +
+                  ' · 来源 ' + ((data && data.source) || '-') +
+                  (degraded ? ' · 已降级' : '') +
+                  ((data && data.note) ? ' · ' + data.note : ''),
+              ),
+            ),
+            React.createElement(
+              'div',
+              { className: 'plab-head-actions' },
+              React.createElement(
+                'button',
+                { type: 'button', className: 'plab-b', onClick: onCopy },
+                '复制',
+              ),
+              React.createElement(
+                'button',
+                {
+                  type: 'button',
+                  className: 'plab-x',
+                  'aria-label': '关闭',
+                  onClick: onCancel,
+                },
+                '×',
+              ),
+            ),
+          ),
+          degraded
+            ? React.createElement(
+                'div',
+                { className: 'plab-banner', role: 'status' },
+                React.createElement(
+                  'span',
+                  null,
+                  React.createElement('strong', null, '已降级为本地骨架'),
+                  reason ? '：' + reason : '。仍可采用。',
+                ),
+              )
+            : null,
+          React.createElement(
+            'div',
+            { className: 'plab-chips' },
+            React.createElement('span', { className: 'plab-score' }, '输出分 ' + score),
+            FIVE_LAYERS.map((id) => {
+              const on = layers[id] === true
+              return React.createElement(
+                'span',
+                {
+                  key: id,
+                  className: 'plab-chip ' + (on ? 'is-on' : 'is-off'),
+                },
+                (on ? '✓ ' : '✗ ') + (LAYER_NAMES[id] || id),
+              )
+            }),
+          ),
+          React.createElement(
+            'div',
+            { className: 'plab-panes' },
+            React.createElement(
+              'div',
+              { className: 'plab-pane' },
+              React.createElement(
+                'div',
+                { className: 'plab-pane-h' },
+                '原稿（可编辑）',
+              ),
+              React.createElement('textarea', {
+                className: 'plab-pane-edit',
+                value: draftText,
+                spellCheck: false,
+                disabled: !!busy,
+                placeholder: '可在此编辑；点「回填输入」把右侧结果填进来继续改',
+                onChange: (e) => onDraftChange && onDraftChange(e.target.value),
+              }),
+            ),
+            React.createElement(
+              'div',
+              { className: 'plab-pane' },
+              React.createElement('div', { className: 'plab-pane-h' }, '结果'),
+              React.createElement('pre', { className: 'plab-pane-b' }, (data && data.text) || ''),
             ),
           ),
           React.createElement(
-            'button',
-            {
-              type: 'button',
-              className: 'plab-x',
-              'aria-label': '关闭',
-              onClick: onCancel,
-            },
-            '×',
-          ),
-        ),
-        degraded
-          ? React.createElement(
-              'div',
-              { className: 'plab-banner', role: 'status' },
-              React.createElement(
-                'span',
-                null,
-                React.createElement('strong', null, '已降级为本地骨架'),
-                reason ? '：' + reason : '。仍可采用。',
-              ),
-            )
-          : null,
-        React.createElement(
-          'div',
-          { className: 'plab-chips' },
-          React.createElement('span', { className: 'plab-score' }, '输出分 ' + score),
-          FIVE_LAYERS.map((id) => {
-            const on = layers[id] === true
-            return React.createElement(
+            'div',
+            { className: 'plab-modal-foot' },
+            React.createElement(
               'span',
+              { className: 'plab-hint' },
+              '继续优化＝对左侧原稿再跑一轮 · 回填输入＝结果填入原稿 · 采用＝原稿写回输入框',
+            ),
+            React.createElement(
+              'button',
+              { type: 'button', className: 'plab-b', onClick: onCancel, disabled: !!busy },
+              '取消',
+            ),
+            React.createElement(
+              'button',
+              { type: 'button', className: 'plab-b', onClick: onFillInput, disabled: !!busy },
+              '回填输入',
+            ),
+            React.createElement(
+              'button',
+              { type: 'button', className: 'plab-b', onClick: onContinue, disabled: !!busy },
+              busy ? '优化中…' : '继续优化',
+            ),
+            React.createElement(
+              'button',
               {
-                key: id,
-                className: 'plab-chip ' + (on ? 'is-on' : 'is-off'),
+                type: 'button',
+                className: 'plab-b plab-b-primary',
+                onClick: onAdopt,
+                disabled: !!busy,
               },
-              (on ? '✓ ' : '✗ ') + (LAYER_NAMES[id] || id),
-            )
-          }),
-        ),
-        React.createElement(
-          'div',
-          { className: 'plab-panes' },
-          React.createElement(
-            'div',
-            { className: 'plab-pane' },
-            React.createElement('div', { className: 'plab-pane-h' }, '原稿'),
-            React.createElement('pre', { className: 'plab-pane-b' }, (data && data.snapshot) || ''),
-          ),
-          React.createElement(
-            'div',
-            { className: 'plab-pane' },
-            React.createElement('div', { className: 'plab-pane-h' }, '结果（采用后写回）'),
-            React.createElement('pre', { className: 'plab-pane-b' }, (data && data.text) || ''),
-          ),
-        ),
-        React.createElement(
-          'div',
-          { className: 'plab-modal-foot' },
-          React.createElement(
-            'span',
-            { className: 'plab-hint' },
-            '取消 / Esc 不修改草稿 · 采用仅在草稿未变时写回',
-          ),
-          React.createElement(
-            'button',
-            { type: 'button', className: 'plab-b', onClick: onCancel },
-            '取消',
-          ),
-          React.createElement(
-            'button',
-            { type: 'button', className: 'plab-b plab-b-primary', onClick: onAdopt },
-            '采用',
+              '采用',
+            ),
           ),
         ),
       ),
+      document.body,
     )
   }
 
@@ -736,14 +948,14 @@ export async function apply(ctx) {
     const [modal, setModal] = React.useState(null)
     const btnRef = React.useRef(null)
     const activeRunRef = React.useRef(null)
-    const cancelledRef = React.useRef(false)
+    const runningRef = React.useRef(false)
     const toastTimer = React.useRef(null)
     const propsRef = React.useRef(props)
     propsRef.current = props
     const modalRef = React.useRef(null)
     modalRef.current = modal
-    const busyRef = React.useRef(false)
-    busyRef.current = busy
+    const settingsRef = React.useRef(settings)
+    settingsRef.current = settings
 
     React.useEffect(() => subscribeSettings(setSettings), [])
     React.useEffect(
@@ -759,19 +971,23 @@ export async function apply(ctx) {
       toastTimer.current = window.setTimeout(() => setToast(null), 3500)
     }
 
-    function closeModal() {
+    /** 取消/Esc：绝不改草稿（输入框与弹窗内编辑都不写回） */
+    function cancelModal() {
       setModal(null)
+      showToast('已取消，草稿未修改', 'err')
     }
 
+    /** 采用：把左侧「原稿」当前内容写回输入框（含回填后的二次编辑） */
     function adoptModal() {
       if (!modal) return
       const current = readDraft(propsRef.current)
-      if (!canAdoptResult(modal.snapshot, current)) {
+      if (!canAdoptResult(modal.snapshot, current) && !canAdoptResult(modal.draft, current)) {
         showToast('草稿已变更，未覆盖。请重新优化。', 'err')
         setModal(null)
         return
       }
-      const okWrite = writeDraft(propsRef.current, modal.text)
+      const text = typeof modal.draft === 'string' ? modal.draft : modal.text
+      const okWrite = writeDraft(propsRef.current, text)
       if (okWrite) {
         showToast('已写入', 'ok')
         setModal(null)
@@ -780,69 +996,134 @@ export async function apply(ctx) {
       }
     }
 
-    async function runOptimize() {
-      if (busy) {
-        if (activeRunRef.current) {
-          cancelledRef.current = true
-          try {
-            await host.call('cancelOptimize', { runId: activeRunRef.current })
-          } catch (e) {}
-        }
-        return
+    /** 回填输入：把右侧「结果」填入左侧原稿窗，便于二次编辑/优化 */
+    function fillInputModal() {
+      if (!modal) return
+      setModal({
+        ...modal,
+        draft: modal.text,
+      })
+      showToast('已把优化结果回填到原稿窗口，可继续编辑', 'ok')
+    }
+
+    function changeModalDraft(value) {
+      if (!modal) return
+      setModal({ ...modal, draft: value })
+    }
+
+    /** 与「优化」同一套调用：draft → optimizePrompt → 结果/诊断/降级 */
+    async function callOptimize(draftText) {
+      const runId = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8)
+      activeRunRef.current = runId
+      const res = await host.call('optimizePrompt', {
+        draft: draftText,
+        ...optimizePayload(settingsRef.current),
+        runId,
+      })
+      console.log('[dsh-prompt-lab] optimize result', {
+        engine: settingsRef.current.engine,
+        source: res.source,
+        engineTried: res.engineTried,
+        degraded: res.degraded,
+        note: res.note,
+        llmError: res.llmError,
+        score: res.score,
+        textLen: (res.text || '').length,
+        draftLen: draftText.length,
+      })
+      return res
+    }
+
+    function modalFromResult(prev, draftText, res) {
+      const text = res.text
+      return {
+        snapshot: prev && prev.snapshot != null ? prev.snapshot : draftText,
+        draft: draftText,
+        text,
+        score: typeof res.score === 'number' ? res.score : (res.diagnostics && res.diagnostics.score) || 0,
+        layers: res.layers || (res.diagnostics && res.diagnostics.layers) || {},
+        degraded: res.degraded === true,
+        note: res.note || '',
+        llmError: res.llmError || '',
+        source: res.source,
+        engineTried: res.engineTried,
       }
-      const snapshot = readDraft(props)
-      if (!snapshot.trim()) {
+    }
+
+    /** 继续优化：对弹窗左侧当前原稿再跑一轮（与「优化」逻辑相同） */
+    async function continueOptimize() {
+      if (runningRef.current || !modal) return
+      const draftText = typeof modal.draft === 'string' ? modal.draft : modal.text || ''
+      if (!draftText.trim()) {
         showToast('请先输入提示词草稿', 'err')
         return
       }
+      runningRef.current = true
       setBusy(true)
-      cancelledRef.current = false
-      const runId = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8)
-      activeRunRef.current = runId
+      showToast('正在优化…', 'ok')
       try {
-        const res = await host.call('optimizePrompt', {
-          draft: snapshot,
-          ...optimizePayload(settings),
-          runId,
-        })
-        console.log('[dsh-prompt-lab] optimize result', {
-          engine: settings.engine,
-          source: res.source,
-          engineTried: res.engineTried,
-          degraded: res.degraded,
-          note: res.note,
-          llmError: res.llmError,
-          score: res.score,
-          textLen: (res.text || '').length,
-          draftLen: snapshot.length,
-        })
-        if (cancelledRef.current) {
-          showToast('已取消，草稿未修改', 'err')
-          return
-        }
+        const res = await callOptimize(draftText)
         const text = res.text
         if (!text) {
           showToast('优化结果为空', 'err')
           return
         }
-        setModal({
-          snapshot,
-          text,
-          score: typeof res.score === 'number' ? res.score : (res.diagnostics && res.diagnostics.score) || 0,
-          layers: res.layers || (res.diagnostics && res.diagnostics.layers) || {},
-          degraded: res.degraded === true,
-          note: res.note || '',
-          llmError: res.llmError || '',
-          source: res.source,
-          engineTried: res.engineTried,
-        })
+        setModal(modalFromResult(modal, draftText, res))
+        showToast('继续优化完成。可「回填输入」或再点「继续优化」。', 'ok')
+      } catch (err) {
+        console.error('[dsh-prompt-lab] continue optimize failed', err)
+        if (err && err.cancelled) showToast('已取消，草稿未修改', 'err')
+        else showToast(String((err && err.message) || err), 'err')
+      } finally {
+        runningRef.current = false
+        activeRunRef.current = null
+        setBusy(false)
+      }
+    }
+
+    async function copyResult() {
+      if (!modal) return
+      const text = modal.text || ''
+      if (!text.trim()) {
+        showToast('输出为空，先运行优化。', 'err')
+        return
+      }
+      try {
+        await navigator.clipboard.writeText(text)
+        showToast('已复制到剪贴板。', 'ok')
+      } catch (e) {
+        showToast('复制失败，请手动选择结果文本', 'err')
+      }
+    }
+
+    async function runOptimize() {
+      // 与网页端一致：优化中忽略再点（不取消），避免“点了没反应/误停”
+      if (runningRef.current) return
+      const snapshot = readDraft(propsRef.current)
+      if (!snapshot.trim()) {
+        showToast('请先输入提示词草稿', 'err')
+        return
+      }
+      runningRef.current = true
+      setBusy(true)
+      showToast('正在优化…', 'ok')
+      try {
+        const res = await callOptimize(snapshot)
+        const text = res.text
+        if (!text) {
+          showToast('优化结果为空', 'err')
+          return
+        }
+        // 不自动写回：弹窗内编辑原稿；回填输入填入原稿窗；采用写回输入框
+        setModal(modalFromResult(null, snapshot, res))
+        showToast('优化完成。可编辑左侧原稿，或「继续优化」/「回填输入」。', 'ok')
       } catch (err) {
         console.error('[dsh-prompt-lab] optimize failed', err)
         if (err && err.cancelled) showToast('已取消，草稿未修改', 'err')
         else showToast(String((err && err.message) || err), 'err')
       } finally {
+        runningRef.current = false
         activeRunRef.current = null
-        cancelledRef.current = false
         setBusy(false)
       }
     }
@@ -854,7 +1135,7 @@ export async function apply(ctx) {
         const s = loadSettings()
         if (s.useHotkey === false) return
         e.preventDefault()
-        if (!busyRef.current) runOptimize()
+        runOptimize()
       }
       document.addEventListener('keydown', onKey)
       return () => document.removeEventListener('keydown', onKey)
@@ -883,12 +1164,12 @@ export async function apply(ctx) {
             type: 'button',
             ref: btnRef,
             className: 'plab-btn' + (busy ? ' is-busy' : ''),
-            disabled: false,
+            disabled: busy,
             onClick: runOptimize,
             title: busy
-              ? '停止优化'
-              : '优化并弹窗确认（' + engineLabel(settings) + '）· Ctrl/⌘+Enter',
-            'aria-label': busy ? '停止优化' : '优化提示词',
+              ? '优化中…'
+              : '优化（' + engineLabel(settings) + '）· Ctrl/⌘+Enter',
+            'aria-label': busy ? '优化中' : '优化提示词（' + engineLabel(settings) + '）',
           },
           busy ? React.createElement('span', { className: 'plab-spin' }) : React.createElement(Icon),
           busy ? '优化中' : '优化',
@@ -904,8 +1185,13 @@ export async function apply(ctx) {
       modal
         ? React.createElement(ResultModal, {
             data: modal,
+            busy,
             onAdopt: adoptModal,
-            onCancel: closeModal,
+            onFillInput: fillInputModal,
+            onCopy: copyResult,
+            onCancel: cancelModal,
+            onDraftChange: changeModalDraft,
+            onContinue: continueOptimize,
           })
         : null,
     )

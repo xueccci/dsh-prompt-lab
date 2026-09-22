@@ -1,10 +1,9 @@
 # dsh-prompt-lab bundle patch.
 #
 # Installed via:
-#   dsh plugin --profile web add dsh-prompt-lab
+#   dsh plugin --profile web add github:xueccci/dsh-prompt-lab#v0.1.1
 #
-# The package declares `dsh.bundle.patch`; the profile appends this bundle and
-# merges the insert below. Browser half is discovered from package.json `dsh.client`.
+# package.json declares `dsh.bundle.patch` + `dsh.client`.
 - insert:
     - id: dsh-prompt-lab
       name: dsh-prompt-lab

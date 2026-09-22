@@ -30,6 +30,7 @@ export const TYPERT = {
     invocation('setSettings'),
     invocation('optimizePrompt'),
     invocation('cancelOptimize'),
+    invocation('testConnection'),
   ],
   model: {
     services: [
@@ -70,6 +71,13 @@ export const TYPERT = {
             signature: 'cancelOptimize(args: object): Promise<object>',
             summary: '按 runId 中止进行中的 LLM 优化。Abort an in-flight LLM optimize by runId.',
             jsDoc: '/**\n * 中止进行中的优化。\n * @param args - { runId }\n * @returns { ok:true } 或 { ok:false, error }\n */',
+          },
+          {
+            kind: 'method',
+            name: 'testConnection',
+            signature: 'testConnection(args: object): Promise<object>',
+            summary: '测试云端 API 连通性。Ping an OpenAI-compatible endpoint.',
+            jsDoc: '/**\n * 测试云端 API。\n * @param args - { api: { baseUrl, apiKey?, model } }\n * @returns { ok:true, message } 或 { ok:false, error }\n */',
           },
         ],
         types: [],

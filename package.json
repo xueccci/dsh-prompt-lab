@@ -1,7 +1,7 @@
 {
   "name": "dsh-prompt-lab",
-  "version": "0.1.0",
-  "description": "Agent-structured prompt optimizer for DeepSeek Harness: one-click rewrite of the composer draft into role/task/context/constraint/format structure with local rules + optional LLM polish. DeepSeek Harness 输入栏 Agent 结构化提示词优化插件（普通/精简/扩写）。",
+  "version": "0.1.1",
+  "description": "Agent-structured prompt optimizer for DeepSeek Harness. Rewrites the composer draft into role/task/context/constraint/format with modes normal/slim/expand. Engines: local, hybrid (default), DSH, cloud API. Confirm modal with score, fill-to-draft, continue-optimize, and adopt-to-composer. DeepSeek Harness 输入栏 Agent 结构化提示词优化插件。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -20,7 +20,8 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "check": "node --test test/shared.test.mjs test/engine.test.mjs && node --check lib/index.js && node --check lib/shared.js && node --check lib/typert.js && node --check lib/client.js"
+    "check": "node --test test/shared.test.mjs test/engine.test.mjs && node --check lib/index.js && node --check lib/shared.js && node --check lib/typert.js && node --check lib/client.js",
+    "prepack": "pnpm build && pnpm check"
   },
   "keywords": [
     "deepseek",
@@ -39,13 +40,17 @@
     "type": "git",
     "url": "git+https://github.com/xueccci/dsh-prompt-lab.git"
   },
+  "homepage": "https://github.com/xueccci/dsh-prompt-lab",
+  "bugs": {
+    "url": "https://github.com/xueccci/dsh-prompt-lab/issues"
+  },
   "dependencies": {
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-llm": "^0.1.0-rc.6",
+    "@deepseek-ai/cordis": ">=4.0.0 <5.0.0 || >=4.0.0-rc.1 <5.0.0-0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc.1 <0.2.0 || >=0.1.0-rc.1 <0.2.0-0",
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.1 <0.2.0 || >=0.1.0-rc.1 <0.2.0-0",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
