@@ -1,0 +1,9 @@
+dsh-prompt-lab
+Copyright (c) 2026 xueccci
+
+This is an independent community plugin for DeepSeek Harness (dsh).
+It is not affiliated with, endorsed by, or sponsored by DeepSeek AI
+or the @deepseek-ai/* packages.
+
+Local Agent-structure optimization methods are adapted from the
+Prompt Lab (提示词工坊) project by the same author.
