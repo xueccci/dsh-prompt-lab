@@ -138,6 +138,47 @@ test('hybrid DSH success returns polished pure body', async () => {
   assert.match(r.text, /\*\*角色\*\*/)
 })
 
+test('DSH 0.2 model metadata comes from resolveModelInfo', async () => {
+  let seen = null
+  const llm = {
+    listProviders: () => [{ id: 'p' }],
+    listModels: async () => [{ id: 'm' }],
+    resolveModelInfo: async (provider, model) => ({
+      provider,
+      id: model,
+      name: 'm',
+      context: { contextWindow: 8000 },
+      defaultMaxTokens: 1500,
+    }),
+    stream(options) {
+      seen = options
+      async function* gen() {
+        yield { type: 'text-delta', text: '**角色**：资深文案。\n**任务**：写笔记。' }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+      }
+      return gen()
+    },
+  }
+  const ctx = makeCtx({
+    llm,
+    defaultModel: {
+      currentSelection: () => ({ provider: 'p', model: 'm' }),
+    },
+  })
+  apply(ctx)
+  const r = await ctx.provided.promptLab.optimizePrompt({
+    draft: DRAFT,
+    mode: 'normal',
+    engine: 'hybrid',
+  })
+  assert.equal(r.ok, true)
+  assert.equal(r.source, 'hybrid')
+  // Without resolveModelInfo the runtime catalog carries no output cap, so the
+  // plugin would fall back to MAX_OUTPUT_TOKENS (4000). Honoring the resolved
+  // defaultMaxTokens proves the DSH >= 0.2 metadata path is actually taken.
+  assert.equal(seen.maxTokens, 1500)
+})
+
 test('empty draft rejected', async () => {
   const ctx = makeCtx()
   apply(ctx)

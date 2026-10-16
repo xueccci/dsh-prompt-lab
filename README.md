@@ -8,6 +8,8 @@ Click **优化** in the composer to rewrite the current draft into an executable
 
 > **Data boundary:** Local mode never leaves the machine. hybrid / DSH / cloud-API polish sends the draft and local skeleton to the configured provider.
 
+> **Requires DSH `>= 0.2.0-rc.2`** (Typert strict codecs now need a `create()` factory, and model metadata is read through `llm.resolveModelInfo()`).
+
 ## What it does
 
 | | Generic polish plugins | **dsh-prompt-lab** |
@@ -42,7 +44,7 @@ Timeouts: idle 15s / total 60s.
 ## Install
 
 ```bash
-dsh plugin --profile web add github:xueccci/dsh-prompt-lab#v0.1.1
+dsh plugin --profile web add github:xueccci/dsh-prompt-lab#v0.2.0
 ```
 
 Restart the profile’s Web process (and `Ctrl+Shift+R` in the browser), then verify:
@@ -97,12 +99,14 @@ See [NOTICE](./NOTICE).
 
 面向 DeepSeek Harness 的 **Agent 结构化提示词优化插件**。
 
+> **需要 DSH `>= 0.2.0-rc.2`**（Typert 严格 codec 必须有 `create()` 工厂；模型元数据改走 `llm.resolveModelInfo()`）。
+
 输入栏点「优化」→ **确认弹窗**（原稿｜结果｜五层诊断 + 输出分）。左侧原稿可编辑，支持 **继续优化** / **回填输入**；**采用** 写回输入框；取消 / Esc **绝不改草稿**。本地规则离线可用；hybrid / DSH / 云端 API 精修失败时 **降级黄条**，仍可处理结果。
 
 ### 安装
 
 ```bash
-dsh plugin --profile web add github:xueccci/dsh-prompt-lab#v0.1.1
+dsh plugin --profile web add github:xueccci/dsh-prompt-lab#v0.2.0
 ```
 
 安装后重启 Web 进程，输入栏左侧应出现 **优化** 按钮。
