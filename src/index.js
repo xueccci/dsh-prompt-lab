@@ -225,14 +225,31 @@ export function apply(ctx) {
     let ctxLen = 65536
     let modelMaxOut = MAX_OUTPUT_TOKENS
     try {
-      const modelsMeta = await llm.listModels(provider)
-      const meta = Array.isArray(modelsMeta) ? modelsMeta.find((m) => m && m.id === model) : null
-      if (meta) {
-        if (typeof meta.contextLength === 'number' && meta.contextLength > 0) ctxLen = meta.contextLength
-        const outCap = typeof meta.maxTokens === 'number' ? meta.maxTokens : meta.maxOutputTokens
-        if (typeof outCap === 'number' && outCap > 0) modelMaxOut = outCap
+      // DSH >= 0.2: llm.listModels() returns catalog entries WITHOUT context/maxTokens
+      // (they are stripped by the runtime). Use resolveModelInfo() for real metadata:
+      // LlmResolvedModelInfo { context?: { contextWindow }, defaultMaxTokens? }.
+      if (typeof llm.resolveModelInfo === 'function') {
+        const info = await llm.resolveModelInfo(provider, model, controller.signal)
+        if (info) {
+          const window = info.context && info.context.contextWindow
+          if (typeof window === 'number' && window > 0) ctxLen = window
+          if (typeof info.defaultMaxTokens === 'number' && info.defaultMaxTokens > 0) {
+            modelMaxOut = info.defaultMaxTokens
+          }
+        }
+      } else {
+        // DSH 0.1 fallback: catalog entries may still carry the fields on some adapters.
+        const modelsMeta = await llm.listModels(provider)
+        const meta = Array.isArray(modelsMeta) ? modelsMeta.find((m) => m && m.id === model) : null
+        if (meta) {
+          if (typeof meta.contextLength === 'number' && meta.contextLength > 0) ctxLen = meta.contextLength
+          const outCap = typeof meta.maxTokens === 'number' ? meta.maxTokens : meta.maxOutputTokens
+          if (typeof outCap === 'number' && outCap > 0) modelMaxOut = outCap
+        }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Metadata is advisory only: fall back to the conservative defaults above.
+    }
 
     const system = systemFor(mode, useLoop)
     let draftUse = draft

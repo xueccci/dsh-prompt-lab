@@ -1,6 +1,6 @@
 {
   "name": "dsh-prompt-lab",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Agent-structured prompt optimizer for DeepSeek Harness. Rewrites the composer draft into role/task/context/constraint/format with modes normal/slim/expand. Engines: local, hybrid (default), DSH, cloud API. Confirm modal with score, fill-to-draft, continue-optimize, and adopt-to-composer. DeepSeek Harness 输入栏 Agent 结构化提示词优化插件。",
   "type": "module",
   "main": "lib/index.js",
@@ -48,9 +48,9 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.0 <5.0.0 || >=4.0.0-rc.1 <5.0.0-0",
-    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.0-rc.1 <0.2.0 || >=0.1.0-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.1 <0.2.0 || >=0.1.0-rc.1 <0.2.0-0",
+    "@deepseek-ai/cordis": ">=4.0.4 <5.0.0",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.2.0-rc.2 <0.3.0",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
@@ -63,6 +63,9 @@
     "tsdown": "^0.22.14"
   },
   "dsh": {
+    "engines": {
+      "dsh": ">=0.2.0-rc.2"
+    },
     "bundle": {
       "patch": "./cordis.patch.yml"
     },

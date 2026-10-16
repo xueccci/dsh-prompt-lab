@@ -279,8 +279,11 @@ if (typeof document !== 'undefined') {
 function looseParse(v) {
   return v
 }
-const argsCodec = { parse: looseParse }
-const resultCodec = { parse: looseParse }
+// DSH >= 0.2 typert requires a `create()` factory on every strict codec
+// (dsh-typert-registry client: "strict codec has no create() factory").
+// The wire payload is already plain JSON, so the codec stays a pass-through.
+const argsCodec = { mode: 'strict', typeSymbol: 'dsh-prompt-lab#Args', create: () => ({ parse: looseParse }) }
+const resultCodec = { mode: 'strict', typeSymbol: 'dsh-prompt-lab#Result', create: () => ({ parse: looseParse }) }
 const descriptor = (method) => ({
   id: 'dsh-prompt-lab#promptLab/' + method,
   service: 'promptLab',
@@ -292,10 +295,10 @@ const descriptor = (method) => ({
       name: 'args',
       wire: 'args',
       source: 'json',
-      codec: { mode: 'strict', typeSymbol: 'dsh-prompt-lab#Args', schema: argsCodec },
+      codec: argsCodec,
     },
   ],
-  result: { mode: 'strict', typeSymbol: 'dsh-prompt-lab#Result', schema: resultCodec },
+  result: resultCodec,
 })
 const CONTRIBUTION = {
   package: 'dsh-prompt-lab',

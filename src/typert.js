@@ -8,8 +8,10 @@ import { z } from 'zod'
 const argsSchema = z.record(z.string(), z.unknown())
 const resultSchema = z.record(z.string(), z.unknown())
 
-const args$codec = { mode: 'strict', typeSymbol: 'dsh-prompt-lab#Args', schema: argsSchema }
-const result$codec = { mode: 'strict', typeSymbol: 'dsh-prompt-lab#Result', schema: resultSchema }
+// DSH >= 0.2 typert requires a `create()` factory on every strict codec
+// (dsh-typert-loader: "has no create() factory"). A bare `schema:` field is ignored.
+const args$codec = { mode: 'strict', typeSymbol: 'dsh-prompt-lab#Args', create: () => argsSchema }
+const result$codec = { mode: 'strict', typeSymbol: 'dsh-prompt-lab#Result', create: () => resultSchema }
 
 const invocation = (method) => ({
   id: 'dsh-prompt-lab#promptLab/' + method,
